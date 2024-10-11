@@ -25,8 +25,8 @@ function App() {
   const [modalContent, setModalContent] = useState(null);
   const [user, setUser] = useState(null);
   const [alertOpen, setAlertOpen] = useState(false);
-  const [columns, setColumns] = useState([]);
-  const [userSupportedCards, setUserSupportedCards] = useState(new Set()); // To track supported cards
+  const [sections, setSections] = useState([]); // Updated state name
+  const [userSupportedCards, setUserSupportedCards] = useState(new Set());
 
   const modalStyles = {
     position: "absolute",
@@ -39,15 +39,31 @@ function App() {
     padding: 4,
   };
 
-  // Fetch columns data from Firebase
+  const columnOrder = {
+    Sonuçlananlar: 1, // Add other sections here
+    "En Tazeler": 2,
+    "Haftanın Enleri": 3,
+
+    "İşleme Alınanlar": 4,
+  };
+
+  const getColumnOrder = (title) => {
+    return columnOrder[title] || Number.MAX_VALUE; // Use MAX_VALUE for unspecified sections
+  };
+
+  // Fetch sections data from Firebase
   useEffect(() => {
     const fetchColumnsData = async () => {
-      const columnsRef = ref(db); // Reference to the root of the Realtime Database
+      const columnsRef = ref(db);
       try {
         const snapshot = await get(columnsRef);
-        console.log(snapshot.val())
         if (snapshot.exists()) {
-          setColumns(snapshot.val()); // Set the columns state with fetched data
+          const fetchedSections = snapshot.val().sections;
+          // Sort sections based on columnOrder
+          const sortedSections = fetchedSections.sort((a, b) => {
+            return getColumnOrder(a.title) - getColumnOrder(b.title);
+          });
+          setSections(sortedSections);
         } else {
           console.log("No data available");
         }
@@ -57,7 +73,7 @@ function App() {
     };
 
     fetchColumnsData();
-  }, []); // Run this effect once when the component is mounted
+  }, []);
 
   // Handle opening the modal with card details
   const handleOpenModal = (card) => {
@@ -73,8 +89,8 @@ function App() {
 
   // Handle successful login
   const handleLoginSuccess = (user) => {
-    setUser(user); // Update the user state after successful login
-    fetchUserSupportedCards(user.uid); // Fetch supported cards after login
+    setUser(user);
+    fetchUserSupportedCards(user.uid);
   };
 
   // Fetch the list of cards the user has supported from Firebase
@@ -83,7 +99,7 @@ function App() {
     try {
       const snapshot = await get(userRef);
       if (snapshot.exists()) {
-        setUserSupportedCards(new Set(snapshot.val())); // Update supported cards state
+        setUserSupportedCards(new Set(snapshot.val()));
       }
     } catch (error) {
       console.error("Error fetching supported cards: ", error);
@@ -96,61 +112,46 @@ function App() {
       alert("Please log in first!");
       return;
     }
-  
-    // Ensure card has valid data
+
     if (!card || !card.columnIndex || card.cardIndex === undefined) {
       alert("Invalid card data!");
       return;
     }
-  
-    // Check if the user has already supported this card
-    if (userSupportedCards.has(card?.uuid)) {
+
+    if (userSupportedCards.has(card.uuid)) {
       alert("You have already supported this card!");
       return;
     }
-  
+
     try {
-      // Log the path to check the data location
-      const cardPath = `columns/${card.columnIndex}/cards/${card.cardIndex}`;
-      console.log("Fetching card at path:", cardPath);
-  
-      // Get a reference to the specific card in Firebase
+      const cardPath = `sections/${card.columnIndex}/cards/${card.cardIndex}`; // Updated path
       const cardRef = ref(db, cardPath);
       const snapshot = await get(cardRef);
-  
+
       if (snapshot.exists()) {
-        // Retrieve the current support count
         const currentSupportCount = snapshot.val().supportCount || 0;
-  
-        // Increment the support count in Firebase
         await update(cardRef, {
           supportCount: currentSupportCount + 1,
         });
-  
-        // Update the supported cards for the current user
+
         const userRef = ref(db, `users/${user.uid}/supportedCards`);
         await update(userRef, {
           [card.uuid]: true,
         });
-  
-        // Update the state locally
+
         setUserSupportedCards((prev) => new Set(prev).add(card.uuid));
-        setAlertOpen(true); // Show success alert
-        setOpenModal(false); // Close the modal if open
-  
+        setAlertOpen(true);
+        setOpenModal(false);
       } else {
         console.log("No data found at the specified path:", cardPath);
       }
     } catch (error) {
       console.error("Error updating support count: ", error);
-      alert("An error occurred while processing your support. Please try again.");
+      alert(
+        "An error occurred while processing your support. Please try again."
+      );
     }
   };
-  
-  
-  
-  
-  
 
   return (
     <Box>
@@ -181,159 +182,173 @@ function App() {
       {/* Body */}
       <Container sx={{ marginTop: 2, maxWidth: "none !important" }}>
         <Grid container spacing={4}>
-          {columns && Array.isArray(columns) && columns.map((column, index) => (
-            <Grid item xs={12} md={3} key={index}>
-              <Box
-                sx={{
-                  backgroundColor: column.bgColor,
-                  padding: 4,
-                  borderRadius: 3,
-                  boxShadow: 4,
-                  transition: "all 0.3s ease-in-out",
-                  "&:hover": {
-                    boxShadow: 12,
-                  },
-                }}
-              >
-                <Typography
-                  variant="h6"
+          {sections &&
+            Array.isArray(sections) &&
+            sections.map((section, index) => (
+              <Grid item xs={12} md={3} key={index}>
+                <Box
                   sx={{
-                    color: theme.palette.primary.main,
-                    fontWeight: "bold",
-                    textTransform: "uppercase",
-                    letterSpacing: 1.2,
-                    marginBottom: 2,
+                    backgroundColor: section.bgColor,
+                    padding: 4,
+                    borderRadius: 3,
+                    boxShadow: 4,
+                    transition: "all 0.3s ease-in-out",
+                    "&:hover": {
+                      boxShadow: 12,
+                    },
                   }}
                 >
-                  {column.title}
-                </Typography>
-                <Grid container spacing={2}>
-                  {column.cards.map((card, cardIndex) => (
-                    <Grid item xs={12} key={card.uuid}>
-                      <Card
-                        sx={{
-                          boxShadow: 3,
-                          borderRadius: 2,
-                          position: "relative",
-                          transition: "all 0.3s ease-in-out",
-                          "&:hover": {
-                            transform: "scale(1.05)",
-                            boxShadow: 8,
-                          },
-                          backgroundColor:
-                            card.status === "green"
-                              ? "#c8e6c9"
-                              : card.status === "red"
-                              ? "#ffcdd2"
-                              : "white",
-                        }}
-                      >
-                        <Box
-                          sx={{
-                            display: "flex",
-                            flexDirection: "row",
-                            alignItems: "center",
-                            position: "absolute",
-                            top: 10,
-                            left: 10,
-                          }}
-                        >
-                          {card.lawyerImage && (
-                            <Avatar
-                              alt={card.lawyerName}
-                              src={card.lawyerImage}
-                              sx={{
-                                width: 40,
-                                height: 40,
-                                border: "2px solid white",
-                                marginRight: 1,
-                              }}
-                            />
-                          )}
-                          {card.lawyerName && (
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: theme.palette.primary.main,
-                                fontWeight: "bold",
-                              }}
-                            >
-                              {card.lawyerName}
-                            </Typography>
-                          )}
-                        </Box>
-
-                        <CardMedia
-                          component="img"
-                          height="140"
-                          image={card.image}
-                          alt={card.title}
-                        />
-                        <CardContent>
-                          <Typography variant="h6">{card.title}</Typography>
-                          {card.supportCount !== undefined && (
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                color: theme.palette.secondary.main,
-                                fontWeight: "bold",
-                              }}
-                            >
-                              📢: {card.supportCount}
-                            </Typography>
-                          )}
-                          <Typography variant="body2">{card.text}</Typography>
-                          {card.sonuc && (
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontWeight: "bold",
-                                color:
-                                  card.status === "green" ? "green" : "red",
-                              }}
-                            >
-                              {card.sonuc}
-                            </Typography>
-                          )}
-                        </CardContent>
-                        <CardActions sx={{ justifyContent: "space-between" }}>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="primary"
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      color: theme.palette.primary.main,
+                      fontWeight: "bold",
+                      textTransform: "uppercase",
+                      letterSpacing: 1.2,
+                      marginBottom: 2,
+                    }}
+                  >
+                    {section.title}
+                  </Typography>
+                  <Grid container spacing={2}>
+                    {section.cards &&
+                      Array.isArray(section.cards) &&
+                      section.cards.map((card, cardIndex) => (
+                        <Grid item xs={12} key={card.uuid}>
+                          <Card
                             sx={{
-                              borderRadius: "15px",
-                              textTransform: "capitalize",
+                              boxShadow: 3,
+                              borderRadius: 2,
+                              position: "relative",
+                              transition: "all 0.3s ease-in-out",
+                              "&:hover": {
+                                transform: "scale(1.05)",
+                                boxShadow: 8,
+                              },
+                              backgroundColor:
+                                card.status === "green"
+                                  ? "#c8e6c9"
+                                  : card.status === "red"
+                                  ? "#ffcdd2"
+                                  : "white",
                             }}
-                            onClick={() => handleOpenModal(card)}
                           >
-                            Detaylar
-                          </Button>
-
-                          {user &&
-                          (column.title === "En Tazeler" ||
-                            column.title === "Haftanın Enleri") ? (
-                            <Button
-                              size="small"
-                              variant="contained"
-                              color="success"
+                            <Box
                               sx={{
-                                borderRadius: "15px",
-                                textTransform: "capitalize",
+                                display: "flex",
+                                flexDirection: "row",
+                                alignItems: "center",
+                                position: "absolute",
+                                top: 10,
+                                left: 10,
                               }}
-                              onClick={() => handleSupportClick({ ...card, columnIndex: index, cardIndex })}
                             >
-                              Destekle
-                            </Button>
-                          ) : null}
-                        </CardActions>
-                      </Card>
-                    </Grid>
-                  ))}
-                </Grid>
-              </Box>
-            </Grid>
-          ))}
+                              {card.lawyerImage && (
+                                <Avatar
+                                  alt={card.lawyerName}
+                                  src={card.lawyerImage}
+                                  sx={{
+                                    width: 40,
+                                    height: 40,
+                                    border: "2px solid white",
+                                    marginRight: 1,
+                                  }}
+                                />
+                              )}
+                              {card.lawyerName && (
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    color: theme.palette.primary.main,
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {card.lawyerName}
+                                </Typography>
+                              )}
+                            </Box>
+
+                            <CardMedia
+                              component="img"
+                              height="140"
+                              image={card.image}
+                              alt={card.title}
+                            />
+                            <CardContent>
+                              <Typography variant="h6">{card.title}</Typography>
+                              {card.supportCount !== undefined && (
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    color: theme.palette.secondary.main,
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  📢: {card.supportCount}
+                                </Typography>
+                              )}
+                              <Typography variant="body2">
+                                {card.text}
+                              </Typography>
+                              {card.sonuc && (
+                                <Typography
+                                  variant="body2"
+                                  sx={{
+                                    fontWeight: "bold",
+                                    color:
+                                      card.status === "green" ? "green" : "red",
+                                  }}
+                                >
+                                  {card.sonuc}
+                                </Typography>
+                              )}
+                            </CardContent>
+                            <CardActions
+                              sx={{ justifyContent: "space-between" }}
+                            >
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                sx={{
+                                  borderRadius: "15px",
+                                  textTransform: "capitalize",
+                                }}
+                                onClick={() => handleOpenModal(card)}
+                              >
+                                Detaylar
+                              </Button>
+
+                              {user &&
+                              (section.title === "En Tazeler" ||
+                                section.title === "Haftanın Enleri") ? (
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  color="success"
+                                  sx={{
+                                    borderRadius: "15px",
+                                    textTransform: "capitalize",
+                                  }}
+                                  onClick={() =>
+                                    handleSupportClick({
+                                      ...card,
+                                      columnIndex: index,
+                                      cardIndex,
+                                    })
+                                  }
+                                >
+                                  Destekle
+                                </Button>
+                              ) : null}
+                            </CardActions>
+                          </Card>
+                        </Grid>
+                      ))}
+                  </Grid>
+                </Box>
+              </Grid>
+            ))}
         </Grid>
       </Container>
 
